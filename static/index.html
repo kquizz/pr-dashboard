@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PR Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --text-muted: #8b949e; --text-dim: #484f58;
+    --green: #3fb950; --green-bg: #0d3117; --green-border: #238636;
+    --yellow: #d29922; --yellow-bg: #3d2e00;
+    --red: #f85149; --red-bg: #3d1117;
+    --blue: #58a6ff; --purple: #bc8cff;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+
+  /* Header */
+  .header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 10; }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .header-right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--text-muted); }
+  .refresh-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: border-color 0.2s; }
+  .refresh-btn:hover { border-color: var(--text-muted); }
+  .refresh-btn:disabled { opacity: 0.5; cursor: wait; }
+  .countdown { font-variant-numeric: tabular-nums; min-width: 24px; }
+  .loading-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--yellow); animation: pulse 1s infinite; margin-right: 6px; }
+  .loading-dot.idle { background: var(--green); animation: none; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* Layout */
+  .container { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+  /* Stats Row */
+  .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 24px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center; transition: transform 0.2s; }
+  .stat:hover { transform: translateY(-2px); }
+  .stat .num { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .label { font-size: 11px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat.blue .num { color: var(--blue); }
+  .stat.green .num { color: var(--green); }
+  .stat.yellow .num { color: var(--yellow); }
+  .stat.red .num { color: var(--red); }
+  .stat.purple .num { color: var(--purple); }
+
+  /* Sections */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .full { grid-column: 1 / -1; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .card-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .card-header h2 { font-size: 14px; font-weight: 600; }
+  .card-header .count { background: var(--border); color: var(--text-muted); font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+  .card-body { padding: 8px; }
+  .card.promote { border-color: var(--green-border); }
+  .card.promote .card-header { background: var(--green-bg); border-bottom-color: var(--green-border); }
+
+  /* PR Rows */
+  .pr-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 13px; transition: background 0.15s; }
+  .pr-row:hover { background: rgba(255,255,255,0.04); }
+  .pr-num { font-weight: 600; color: var(--blue); min-width: 56px; text-decoration: none; }
+  .pr-num:hover { text-decoration: underline; }
+  .pr-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-repo { font-size: 10px; color: var(--text-muted); background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; }
+  .badges { display: flex; gap: 4px; flex-shrink: 0; }
+
+  /* Badges */
+  .badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 500; white-space: nowrap; }
+  .badge-pass { background: var(--green-bg); color: var(--green); }
+  .badge-pending { background: var(--yellow-bg); color: var(--yellow); }
+  .badge-fail { background: var(--red-bg); color: var(--red); }
+  .badge-none { background: rgba(255,255,255,0.06); color: var(--text-muted); }
+  .badge-approved { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+  .badge-conflict { background: var(--red-bg); color: var(--red); }
+  .badge-warn { background: var(--yellow-bg); color: var(--yellow); }
+  .badge[title] { cursor: help; }
+  .badge-ss { background: var(--green-bg); color: var(--green); }
+  .badge-author { background: rgba(188,140,255,0.12); color: var(--purple); }
+
+  /* Chart */
+  .chart-wrap { padding: 16px; height: 200px; }
+
+  /* Issues */
+  .issue-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; }
+  .issue-icon { font-size: 16px; }
+  .fix-all-btn { background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.35); color: var(--red); padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; transition: all 0.15s; }
+  .fix-all-btn:hover { background: rgba(248,81,73,0.2); border-color: var(--red); }
+
+  /* Empty state */
+  .empty { padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+  /* Promote button */
+  .promote-btn { background: rgba(63,185,80,0.1); border: 1px solid rgba(63,185,80,0.3); color: var(--green); padding: 2px 9px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500; transition: all 0.15s; white-space: nowrap; flex-shrink: 0; }
+  .promote-btn:hover { background: rgba(63,185,80,0.2); border-color: var(--green); }
+  .promote-btn.running { background: rgba(210,153,34,0.1); border-color: rgba(210,153,34,0.4); color: var(--yellow); cursor: wait; }
+  .promote-btn.done { background: var(--green-bg); border-color: var(--green-border); color: var(--green); cursor: default; }
+  .promote-btn.failed { background: var(--red-bg); border-color: rgba(248,81,73,0.4); color: var(--red); }
+
+  /* Fix button */
+  .fix-btn { background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.25); color: var(--blue); padding: 2px 9px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500; transition: all 0.15s; white-space: nowrap; flex-shrink: 0; }
+  .fix-btn:hover { background: rgba(88,166,255,0.18); border-color: var(--blue); }
+  .fix-btn.running { background: rgba(210,153,34,0.1); border-color: rgba(210,153,34,0.4); color: var(--yellow); cursor: wait; }
+  .fix-btn.done { background: var(--green-bg); border-color: var(--green-border); color: var(--green); cursor: default; }
+  .fix-btn.failed { background: var(--red-bg); border-color: rgba(248,81,73,0.4); color: var(--red); }
+
+  /* Jobs */
+  .job-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 16px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  .job-row:last-child { border-bottom: none; }
+  .job-icon { font-size: 15px; margin-top: 1px; }
+  .job-info { flex: 1; min-width: 0; }
+  .job-title { font-weight: 500; }
+  .job-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+  .job-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+  .log-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+  .log-btn:hover { border-color: var(--text-muted); color: var(--text); }
+
+  /* Log modal */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 100; display: flex; align-items: center; justify-content: center; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 82vw; max-height: 78vh; display: flex; flex-direction: column; }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .modal-header h3 { font-size: 14px; font-weight: 600; }
+  .modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 22px; line-height: 1; padding: 0 4px; }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+  .log-lines { font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 12px; color: var(--text-muted); white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
+  .log-empty { color: var(--text-dim); font-size: 13px; font-style: italic; }
+
+  /* Transitions */
+  .fade-in { animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .stats { grid-template-columns: repeat(3, 1fr); }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>PR Dashboard</h1>
+  <div class="header-right">
+    <span><span class="loading-dot idle" id="status-dot"></span><span id="status-text">Ready</span></span>
+    <span>Next refresh: <span class="countdown" id="countdown">60</span>s</span>
+    <button class="refresh-btn" id="refresh-btn" onclick="manualRefresh()">Refresh</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Stats -->
+  <div class="stats" id="stats-row">
+    <div class="stat blue"><div class="num" id="stat-total">-</div><div class="label">Total Open</div></div>
+    <div class="stat green"><div class="num" id="stat-promote">-</div><div class="label">Ready to Promote</div></div>
+    <div class="stat green"><div class="num" id="stat-passing">-</div><div class="label">CI Passing</div></div>
+    <div class="stat yellow"><div class="num" id="stat-pending">-</div><div class="label">CI Pending</div></div>
+    <div class="stat red"><div class="num" id="stat-failing">-</div><div class="label">CI Failing</div></div>
+    <div class="stat purple"><div class="num" id="stat-approved">-</div><div class="label">Approved</div></div>
+  </div>
+
+  <!-- Action Needed (top-level, outside grid) -->
+  <div class="card full" id="issues-card" style="display:none;margin-bottom:16px">
+    <div class="card-header"><h2>Action Needed</h2><span class="count" id="issues-count">0</span></div>
+    <div class="card-body" id="issues-body"></div>
+  </div>
+
+  <div class="grid">
+    <!-- Ready to Promote -->
+    <div class="card promote full" id="promote-card" style="display:none">
+      <div class="card-header"><h2>Ready to Promote</h2><span class="count" id="promote-count">0</span></div>
+      <div class="card-body" id="promote-body"></div>
+    </div>
+
+    <!-- CI Charts row -->
+    <div class="card" id="charts-row" style="grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 220px; gap: 0;">
+      <div id="ci-chart-pane" style="border-right: 1px solid var(--border);">
+        <div class="card-header"><h2>CI Status by PR</h2></div>
+        <div class="chart-wrap"><canvas id="ci-chart"></canvas></div>
+      </div>
+      <div id="draft-chart-pane">
+        <div class="card-header"><h2>Drafts CI</h2></div>
+        <div class="chart-wrap" style="height:200px;display:flex;align-items:center;justify-content:center;">
+          <canvas id="draft-ci-chart" style="max-width:180px;max-height:180px;"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active repo sections (generated from config) -->
+    <div id="active-sections" style="display: contents"></div>
+
+    <!-- Draft repo sections (generated from config; hidden when hide_drafts) -->
+    <div id="draft-sections" style="display: contents"></div>
+
+    <!-- Fix Jobs -->
+    <div class="card full" id="jobs-card" style="display:none">
+      <div class="card-header"><h2>Fix Jobs</h2><span class="count" id="jobs-count">0</span></div>
+      <div class="card-body" id="jobs-body"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Log Modal -->
+<div class="modal-overlay" id="log-modal" style="display:none" onclick="closeLog(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="log-modal-title">Job Log</h3>
+      <button class="modal-close" onclick="closeLogModal()">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div class="log-lines" id="log-modal-content"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Populated from /api/config at startup; these are fallbacks.
+let DASH_CONFIG = {
+  enable_fix_pr: false,
+  hide_drafts: false,
+  hide_promote_section: false,
+  hide_charts: false,
+  show_others: false,
+  refresh_interval: 60,
+  org: '',
+  repos: [],
+};
+let REFRESH_INTERVAL = DASH_CONFIG.refresh_interval; // seconds
+let countdown = REFRESH_INTERVAL;
+let ciChart = null;
+let draftCiChart = null;
+let timer = null;
+
+// Current PR data keyed by "repo-number", used to detect stale job states
+let latestPRIndex = {};
+
+// Issues state
+let currentIssues = [];
+let issuesDismissedUntilRefresh = false;
+
+function prHasIssues(pr) {
+  return pr.ci === 'failing' || (pr.unresolved + (pr.issue_comments || 0)) > 0 || pr.mergeable === 'CONFLICTING';
+}
+
+// Track in-flight promote actions (repo-number -> status)
+const promoteState = {};
+
+function promoteButtonHtml(pr) {
+  const key = `${pr.repo}-${pr.number}`;
+  const state = promoteState[key];
+  if (state === 'running') return `<button class="promote-btn running" disabled>\u27f3 Promoting\u2026</button>`;
+  if (state === 'done')    return `<button class="promote-btn done">\u2713 Promoted</button>`;
+  if (state === 'failed')  return `<button class="promote-btn failed" onclick="promotePR('${pr.repo}',${pr.number})">Retry</button>`;
+  return `<button class="promote-btn" onclick="promotePR('${pr.repo}',${pr.number})">Promote \u2192</button>`;
+}
+
+function renderPromotablePR(pr) {
+  const repoTag = `<span class="pr-repo">${pr.repo}</span>`;
+  const link = `<a class="pr-num" href="${pr.url}" target="_blank">PR-${pr.number}</a>`;
+  const title = `<span class="pr-title" title="${pr.title.replace(/"/g,'&quot;')}">${pr.title}</span>`;
+  const badges = `<div class="badges">${authorBadge(pr.author)}${ciBadge(pr.ci)}${screenshotBadge(pr.has_screenshots, pr.requires_screenshots)}</div>`;
+  return `<div class="pr-row fade-in" id="promote-row-${pr.repo}-${pr.number}">${repoTag}${link}${title}${badges}${promoteButtonHtml(pr)}</div>`;
+}
+
+async function promotePR(repo, prNumber) {
+  const key = `${repo}-${prNumber}`;
+  promoteState[key] = 'running';
+  _refreshPromoteRow(repo, prNumber);
+
+  try {
+    const res = await fetch(`/api/promote/${encodeURIComponent(repo)}/${encodeURIComponent(prNumber)}`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      promoteState[key] = 'failed';
+      alert(data.error || 'Promote failed');
+    } else {
+      promoteState[key] = 'done';
+      if (data.backend_label_added) {
+        console.info(`Added "Backend work needed" label to PR-${prNumber}`);
+      }
+      // Trigger refresh so the PR moves out of the promote section
+      setTimeout(() => fetchData(true), 3000);
+    }
+  } catch (e) {
+    promoteState[key] = 'failed';
+    console.error(e);
+  }
+  _refreshPromoteRow(repo, prNumber);
+}
+
+function _refreshPromoteRow(repo, prNumber) {
+  const row = document.getElementById(`promote-row-${repo}-${prNumber}`);
+  if (!row) return;
+  const btn = row.querySelector('.promote-btn');
+  if (!btn) return;
+  const pr = { repo, number: prNumber, url: row.querySelector('.pr-num')?.href || '#' };
+  const key = `${repo}-${prNumber}`;
+  const state = promoteState[key];
+  const newBtn = document.createElement('button');
+  if (state === 'running') {
+    newBtn.className = 'promote-btn running'; newBtn.disabled = true;
+    newBtn.textContent = '\u27f3 Promoting\u2026';
+  } else if (state === 'done') {
+    newBtn.className = 'promote-btn done';
+    newBtn.textContent = '\u2713 Promoted';
+  } else if (state === 'failed') {
+    newBtn.className = 'promote-btn failed';
+    newBtn.textContent = 'Retry';
+    newBtn.addEventListener('click', () => promotePR(repo, prNumber));
+  }
+  btn.replaceWith(newBtn);
+}
+
+function ciBadge(ci, failingChecks) {
+  const map = {
+    passing: ['Pass', 'badge-pass'],
+    pending: ['Pending', 'badge-pending'],
+    failing: ['Fail', 'badge-fail'],
+    'no checks': ['No CI', 'badge-none'],
+  };
+  const [label, cls] = map[ci] || ['Unknown', 'badge-none'];
+  let tooltip = '';
+  if (ci === 'failing' && failingChecks && failingChecks.length) {
+    tooltip = ` title="${failingChecks.map(c => c.replace(/"/g, '&quot;')).join('\n')}"`;
+  }
+  return `<span class="badge ${cls}"${tooltip}>${label}</span>`;
+}
+
+function commentsBadge(unresolved, issueComments, commentDetails) {
+  const total = unresolved + issueComments;
+  if (total === 0) return '';
+  const parts = [];
+  if (unresolved) parts.push(`${unresolved} unresolved`);
+  if (issueComments) parts.push(`${issueComments} conversation`);
+  let tooltip = '';
+  if (commentDetails && commentDetails.length) {
+    tooltip = ` title="${commentDetails.map(c => c.replace(/"/g, '&quot;').replace(/</g, '&lt;')).join('\n')}"`;
+  }
+  return `<span class="badge badge-warn"${tooltip}>${parts.join(', ')}</span>`;
+}
+
+function approvalBadge(approvers) {
+  if (!approvers.length) return '';
+  return `<span class="badge badge-approved">${approvers.join(', ')}</span>`;
+}
+
+function conflictBadge(mergeable, base) {
+  if (mergeable === 'CONFLICTING') {
+    const tooltip = base ? ` title="Merge conflicts with ${base.replace(/"/g, '&quot;')}"` : '';
+    return `<span class="badge badge-conflict"${tooltip}>Conflicts</span>`;
+  }
+  return '';
+}
+
+function authorBadge(author) {
+  if (!DASH_CONFIG.show_others || !author) return '';
+  return `<span class="badge badge-author">@${escHtml(author)}</span>`;
+}
+
+function screenshotBadge(hasSs, requiresSs) {
+  if (!requiresSs) return '';
+  return hasSs
+    ? '<span class="badge badge-ss">Screenshots</span>'
+    : '<span class="badge badge-none">No screenshots</span>';
+}
+
+function getJobForPR(repo, number) {
+  return jobsState.find(j => j.repo === repo && j.pr_number === number);
+}
+
+function fixButtonHtml(pr) {
+  const job = getJobForPR(pr.repo, pr.number);
+  if (job) {
+    if (job.status === 'running' || job.status === 'starting') {
+      return `<button class="fix-btn running" disabled>\u27f3 Fixing\u2026</button>`;
+    }
+    if (job.status === 'done') {
+      // If the PR still has issues after the fix completed, the fix is stale — reset
+      const current = latestPRIndex[`${pr.repo}-${pr.number}`];
+      if (current && prHasIssues(current)) {
+        return `<button class="fix-btn" onclick="fixPR('${pr.repo}', ${pr.number})">Fix \u2192</button>`;
+      }
+      return `<button class="fix-btn done" onclick="showLog('${job.id}', 'PR-${pr.number}')">\u2713 Fixed</button>`;
+    }
+    if (job.status === 'failed') {
+      return `<button class="fix-btn failed" onclick="fixPR('${pr.repo}', ${pr.number})">\u2717 Retry</button>`;
+    }
+  }
+  return `<button class="fix-btn" onclick="fixPR('${pr.repo}', ${pr.number})">Fix \u2192</button>`;
+}
+
+function renderPR(pr, showRepo = false) {
+  return `<div class="pr-row fade-in" id="pr-row-${pr.repo}-${pr.number}">
+    ${showRepo ? `<span class="pr-repo">${pr.repo}</span>` : ''}
+    <a class="pr-num" href="${pr.url}" target="_blank">PR-${pr.number}</a>
+    <span class="pr-title" title="${pr.title}">${pr.title}</span>
+    <div class="badges">
+      ${authorBadge(pr.author)}
+      ${ciBadge(pr.ci, pr.failing_checks)}
+      ${commentsBadge(pr.unresolved, pr.issue_comments, pr.comment_details)}
+      ${approvalBadge(pr.approvers)}
+      ${conflictBadge(pr.mergeable, pr.base)}
+      ${screenshotBadge(pr.has_screenshots, pr.requires_screenshots)}
+    </div>
+    ${DASH_CONFIG.enable_fix_pr ? fixButtonHtml(pr) : ''}
+  </div>`;
+}
+
+function renderGroup(containerId, countId, prs) {
+  const el = document.getElementById(containerId);
+  const countEl = document.getElementById(countId);
+  countEl.textContent = prs.length;
+  if (!prs.length) {
+    el.innerHTML = '<div class="empty">No PRs</div>';
+    return;
+  }
+  el.innerHTML = prs.map(pr => renderPR(pr)).join('');
+}
+
+function renderStats(stats) {
+  document.getElementById('stat-total').textContent = stats.total;
+  document.getElementById('stat-promote').textContent = stats.ready_to_promote;
+  document.getElementById('stat-passing').textContent = stats.ci_passing;
+  document.getElementById('stat-pending').textContent = stats.ci_pending;
+  document.getElementById('stat-failing').textContent = stats.ci_failing;
+  document.getElementById('stat-approved').textContent = stats.approved;
+}
+
+function renderPromotable(promotable) {
+  const card = document.getElementById('promote-card');
+  const body = document.getElementById('promote-body');
+  const count = document.getElementById('promote-count');
+
+  if (DASH_CONFIG.hide_promote_section) { card.style.display = 'none'; return; }
+  if (!promotable.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  count.textContent = promotable.length;
+  body.innerHTML = promotable.map(pr => renderPromotablePR(pr)).join('');
+}
+
+function fixAllIssues() {
+  const seen = new Set();
+  currentIssues.forEach(i => {
+    const key = `${i.pr.repo}-${i.pr.number}`;
+    if (!seen.has(key)) { seen.add(key); fixPR(i.pr.repo, i.pr.number); }
+  });
+  issuesDismissedUntilRefresh = true;
+  document.getElementById('issues-card').style.display = 'none';
+}
+
+function renderIssues(issues) {
+  currentIssues = issues;
+  const card = document.getElementById('issues-card');
+  const body = document.getElementById('issues-body');
+  const count = document.getElementById('issues-count');
+  const header = card.querySelector('.card-header');
+
+  // Hide issues for PRs that already have a running fix job
+  const visible = issues.filter(i => {
+    const job = getJobForPR(i.pr.repo, i.pr.number);
+    return !job || (job.status !== 'running' && job.status !== 'starting');
+  });
+
+  if (!visible.length || issuesDismissedUntilRefresh) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  count.textContent = visible.length;
+
+  // Ensure Fix All button exists in header (idempotent; only when fix is enabled)
+  if (DASH_CONFIG.enable_fix_pr && !header.querySelector('.fix-all-btn')) {
+    const btn = document.createElement('button');
+    btn.className = 'fix-all-btn';
+    btn.textContent = 'Fix All \u2192';
+    btn.addEventListener('click', fixAllIssues);
+    header.appendChild(btn);
+  }
+
+  const fragment = document.createDocumentFragment();
+  visible.forEach(i => {
+    const icon = (i.type === 'ci_failing' || i.type === 'conflicts') ? '\u274c' : '\u26a0\ufe0f';
+    const row = document.createElement('div');
+    row.className = 'issue-row';
+    const iconEl = document.createElement('span');
+    iconEl.className = 'issue-icon';
+    iconEl.textContent = icon;
+    const msg = document.createElement('span');
+    msg.textContent = i.msg;
+    row.appendChild(iconEl);
+    row.appendChild(msg);
+    fragment.appendChild(row);
+  });
+  body.textContent = '';
+  body.appendChild(fragment);
+}
+
+function renderChart(data) {
+  const allPrs = [...data.prs.active, ...data.prs.drafts];
+  allPrs.sort((a, b) => {
+    if (a.repo !== b.repo) return a.repo.localeCompare(b.repo);
+    return a.number - b.number;
+  });
+
+  const labels = allPrs.map(p => `${p.number}`);
+  const colors = allPrs.map(p => {
+    if (p.ci === 'passing') return '#238636';
+    if (p.ci === 'pending') return '#9e6a03';
+    if (p.ci === 'failing') return '#da3633';
+    return '#30363d';
+  });
+  const values = allPrs.map(p => {
+    if (p.ci === 'passing') return 1;
+    if (p.ci === 'pending') return 0.6;
+    if (p.ci === 'failing') return 0.3;
+    return 0.1;
+  });
+  const borders = allPrs.map(p => {
+    // Mark repo boundary
+    return 'transparent';
+  });
+
+  const ctx = document.getElementById('ci-chart').getContext('2d');
+
+  if (ciChart) {
+    ciChart.data.labels = labels;
+    ciChart.data.datasets[0].data = values;
+    ciChart.data.datasets[0].backgroundColor = colors;
+    ciChart.update('none');
+    return;
+  }
+
+  ciChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderColor: borders,
+        borderWidth: 0,
+        borderRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const idx = items[0].dataIndex;
+              const pr = allPrs[idx];
+              return `PR-${pr.number} (${pr.repo})`;
+            },
+            label: (item) => {
+              const pr = allPrs[item.dataIndex];
+              return [pr.title, `CI: ${pr.ci}`];
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#8b949e', font: { size: 10 } },
+        },
+        y: {
+          display: false,
+          max: 1.1,
+        }
+      }
+    }
+  });
+}
+
+function renderDraftChart(drafts) {
+  const passing = drafts.filter(p => p.ci === 'passing').length;
+  const pending = drafts.filter(p => p.ci === 'pending').length;
+  const failing = drafts.filter(p => p.ci === 'failing').length;
+  const none = drafts.length - passing - pending - failing;
+
+  const labels = [];
+  const values = [];
+  const colors = [];
+  if (passing) { labels.push('Pass'); values.push(passing); colors.push('#238636'); }
+  if (pending) { labels.push('Pending'); values.push(pending); colors.push('#9e6a03'); }
+  if (failing) { labels.push('Fail'); values.push(failing); colors.push('#da3633'); }
+  if (none)    { labels.push('No CI'); values.push(none); colors.push('#30363d'); }
+
+  const ctx = document.getElementById('draft-ci-chart').getContext('2d');
+  if (draftCiChart) {
+    draftCiChart.data.labels = labels;
+    draftCiChart.data.datasets[0].data = values;
+    draftCiChart.data.datasets[0].backgroundColor = colors;
+    draftCiChart.update('none');
+    return;
+  }
+  draftCiChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0, hoverOffset: 4 }] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      cutout: '60%',
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: { color: '#8b949e', font: { size: 11 }, boxWidth: 12, padding: 8 }
+        },
+        tooltip: { callbacks: { label: (i) => ` ${i.label}: ${i.raw}` } }
+      }
+    }
+  });
+}
+
+async function fetchData(force = false) {
+  const dot = document.getElementById('status-dot');
+  const statusText = document.getElementById('status-text');
+  const btn = document.getElementById('refresh-btn');
+
+  dot.classList.remove('idle');
+  statusText.textContent = 'Loading...';
+  btn.disabled = true;
+
+  try {
+    const url = force ? '/api/refresh' : '/api/prs';
+    const opts = force ? { method: 'POST' } : {};
+    const res = await fetch(url, opts);
+    const data = await res.json();
+
+    renderStats(data.stats);
+    renderPromotable(data.promotable);
+    renderIssues(data.issues);
+
+    DASH_CONFIG.repos.forEach(repo => {
+      const id = cssId(repo);
+      renderGroup(`active-${id}`, `active-${id}-count`, data.prs.active.filter(p => p.repo === repo));
+      if (!DASH_CONFIG.hide_drafts) {
+        renderGroup(`draft-${id}`, `draft-${id}-count`, data.prs.drafts.filter(p => p.repo === repo));
+      }
+    });
+
+    // Index current PR data for stale-job detection
+    latestPRIndex = {};
+    [...data.prs.active, ...data.prs.drafts].forEach(pr => {
+      latestPRIndex[`${pr.repo}-${pr.number}`] = pr;
+    });
+    // Reset issues dismissed state on each fresh ping
+    issuesDismissedUntilRefresh = false;
+
+    if (!DASH_CONFIG.hide_charts) {
+      renderChart(data);
+      if (!DASH_CONFIG.hide_drafts) renderDraftChart(data.prs.drafts);
+    }
+
+    const ts = new Date(data.timestamp);
+    statusText.textContent = `Updated ${ts.toLocaleTimeString()}`;
+  } catch (e) {
+    statusText.textContent = 'Error loading data';
+    console.error(e);
+  }
+
+  dot.classList.add('idle');
+  btn.disabled = false;
+  countdown = REFRESH_INTERVAL;
+}
+
+function manualRefresh() {
+  countdown = REFRESH_INTERVAL;
+  fetchData(true);
+}
+
+function startTimer() {
+  timer = setInterval(() => {
+    countdown--;
+    document.getElementById('countdown').textContent = countdown;
+    if (countdown <= 0) {
+      countdown = REFRESH_INTERVAL;
+      fetchData();
+    }
+  }, 1000);
+}
+
+// ── Fix Jobs ─────────────────────────────────────────────────────────────────
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function escAttr(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+let jobsState = [];
+let jobsTimer = null;
+
+async function fixPR(repo, prNumber) {
+  const btn = document.querySelector(`#pr-row-${escHtml(repo)}-${prNumber} .fix-btn`);
+  if (btn) { btn.disabled = true; btn.textContent = '\u2026'; }
+
+  try {
+    const res = await fetch(`/api/fix/${encodeURIComponent(repo)}/${encodeURIComponent(prNumber)}`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to start fix job');
+      if (btn) { btn.disabled = false; btn.textContent = 'Fix \u2192'; }
+      return;
+    }
+    startJobPolling();
+    fetchJobs();
+  } catch (e) {
+    console.error(e);
+    if (btn) { btn.disabled = false; btn.textContent = 'Fix \u2192'; }
+  }
+}
+
+async function fetchJobs() {
+  try {
+    const res = await fetch('/api/jobs');
+    jobsState = await res.json();
+    renderJobs();
+    updatePRFixButtons();
+    renderIssues(currentIssues); // re-filter now that job states changed
+
+    const anyRunning = jobsState.some(j => j.status === 'running' || j.status === 'starting');
+    if (!anyRunning && jobsTimer) {
+      clearInterval(jobsTimer);
+      jobsTimer = null;
+    }
+  } catch (e) {
+    console.error('Jobs fetch error:', e);
+  }
+}
+
+function startJobPolling() {
+  if (!jobsTimer) {
+    jobsTimer = setInterval(fetchJobs, 4000);
+  }
+}
+
+function renderJobs() {
+  const card = document.getElementById('jobs-card');
+  const body = document.getElementById('jobs-body');
+  const countEl = document.getElementById('jobs-count');
+
+  if (!jobsState.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  countEl.textContent = jobsState.length;
+
+  // Build DOM nodes instead of raw HTML for job-supplied strings
+  const fragment = document.createDocumentFragment();
+  jobsState.forEach(j => {
+    const icon = j.status === 'done' ? '\u2705' : j.status === 'failed' ? '\u274c' : '\u23f3';
+    const elapsedSec = j.finished_at ? '' : ` \u00b7 running ${Math.round((Date.now() - new Date(j.started_at)) / 1000)}s`;
+
+    const row = document.createElement('div');
+    row.className = 'job-row';
+
+    const iconEl = document.createElement('span');
+    iconEl.className = 'job-icon';
+    iconEl.textContent = icon;
+
+    const info = document.createElement('div');
+    info.className = 'job-info';
+
+    const title = document.createElement('div');
+    title.className = 'job-title';
+    title.textContent = `PR-${j.pr_number} (${j.repo}) \u2014 ${j.branch}`;
+
+    const meta = document.createElement('div');
+    meta.className = 'job-meta';
+    meta.textContent = `${j.status}${elapsedSec}`;
+    if (j.error) {
+      const errSpan = document.createElement('span');
+      errSpan.style.cssText = 'color:var(--red);font-size:11px;margin-left:6px';
+      errSpan.textContent = j.error;
+      meta.appendChild(errSpan);
+    }
+
+    info.appendChild(title);
+    info.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'job-actions';
+    if (j.log_path) {
+      const logBtn = document.createElement('button');
+      logBtn.className = 'log-btn';
+      logBtn.textContent = 'Log';
+      logBtn.addEventListener('click', () => showLog(j.id, `PR-${j.pr_number}`));
+      actions.appendChild(logBtn);
+    }
+
+    row.appendChild(iconEl);
+    row.appendChild(info);
+    row.appendChild(actions);
+    fragment.appendChild(row);
+  });
+
+  body.textContent = '';
+  body.appendChild(fragment);
+}
+
+function updatePRFixButtons() {
+  document.querySelectorAll('.pr-row').forEach(row => {
+    const match = row.id.match(/^pr-row-(.+)-(\d+)$/);
+    if (!match) return;
+    const [, repo, num] = match;
+    const btn = row.querySelector('.fix-btn');
+    if (!btn) return;
+    const newBtn = document.createElement('button');
+    const pr = { repo, number: parseInt(num, 10) };
+    const job = getJobForPR(pr.repo, pr.number);
+    if (job) {
+      if (job.status === 'running' || job.status === 'starting') {
+        newBtn.className = 'fix-btn running';
+        newBtn.disabled = true;
+        newBtn.textContent = '\u27f3 Fixing\u2026';
+      } else if (job.status === 'done') {
+        newBtn.className = 'fix-btn done';
+        newBtn.textContent = '\u2713 Fixed';
+        newBtn.addEventListener('click', () => showLog(job.id, `PR-${pr.number}`));
+      } else if (job.status === 'failed') {
+        newBtn.className = 'fix-btn failed';
+        newBtn.textContent = '\u2717 Retry';
+        newBtn.addEventListener('click', () => fixPR(pr.repo, pr.number));
+      }
+    } else {
+      newBtn.className = 'fix-btn';
+      newBtn.textContent = 'Fix \u2192';
+      newBtn.addEventListener('click', () => fixPR(pr.repo, pr.number));
+    }
+    btn.replaceWith(newBtn);
+  });
+}
+
+async function showLog(jobId, label) {
+  const modal = document.getElementById('log-modal');
+  document.getElementById('log-modal-title').textContent = `Log \u2014 ${label}`;
+  const content = document.getElementById('log-modal-content');
+  content.textContent = 'Loading\u2026';
+  modal.style.display = 'flex';
+
+  try {
+    const res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/log`);
+    const data = await res.json();
+    if (data.lines && data.lines.length) {
+      content.textContent = data.lines.join('\n');
+    } else {
+      content.textContent = 'No output yet.';
+      content.className = 'log-empty';
+    }
+    content.parentElement.scrollTop = content.parentElement.scrollHeight;
+  } catch (e) {
+    content.textContent = 'Error loading log.';
+  }
+}
+
+function closeLogModal() {
+  document.getElementById('log-modal').style.display = 'none';
+}
+
+document.getElementById('log-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('log-modal')) closeLogModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLogModal(); });
+
+// ── Config-driven setup ────────────────────────────────────────────────────
+
+// Make a repo name safe to use inside an element id / selector.
+function cssId(repo) {
+  return String(repo).replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+
+function repoCard(title, bodyId, countId) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    `<div class="card-header"><h2></h2><span class="count" id="${countId}">0</span></div>` +
+    `<div class="card-body" id="${bodyId}"></div>`;
+  card.querySelector('h2').textContent = title;
+  return card;
+}
+
+// Build the per-repo Active/Draft cards from the configured repo list.
+function buildSections() {
+  const activeWrap = document.getElementById('active-sections');
+  const draftWrap = document.getElementById('draft-sections');
+  activeWrap.textContent = '';
+  draftWrap.textContent = '';
+
+  DASH_CONFIG.repos.forEach(repo => {
+    const id = cssId(repo);
+    activeWrap.appendChild(repoCard(repo, `active-${id}`, `active-${id}-count`));
+    if (!DASH_CONFIG.hide_drafts) {
+      draftWrap.appendChild(repoCard(`Drafts — ${repo}`, `draft-${id}`, `draft-${id}-count`));
+    }
+  });
+}
+
+// Adjust the charts row for hide_charts / hide_drafts.
+function applyChartVisibility() {
+  const row = document.getElementById('charts-row');
+  if (DASH_CONFIG.hide_charts) {
+    if (row) row.style.display = 'none';
+    return;
+  }
+  if (!DASH_CONFIG.hide_drafts) return;
+  // Drafts hidden but charts shown: drop the Drafts CI pane, stretch CI Status.
+  const pane = document.getElementById('draft-chart-pane');
+  const ciPane = document.getElementById('ci-chart-pane');
+  if (pane) pane.style.display = 'none';
+  if (ciPane) ciPane.style.borderRight = 'none';
+  if (row) row.style.gridTemplateColumns = '1fr';
+}
+
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) DASH_CONFIG = await res.json();
+  } catch (e) {
+    console.warn('Falling back to default config:', e);
+  }
+  REFRESH_INTERVAL = DASH_CONFIG.refresh_interval || 60;
+  countdown = REFRESH_INTERVAL;
+  document.getElementById('countdown').textContent = countdown;
+  buildSections();
+  applyChartVisibility();
+}
+
+// Init
+(async function init() {
+  await loadConfig();
+  fetchData();
+  startTimer();
+  if (DASH_CONFIG.enable_fix_pr) fetchJobs();
+})();
+</script>
+</body>
+</html>

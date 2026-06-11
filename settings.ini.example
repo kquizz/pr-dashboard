@@ -1,0 +1,42 @@
+# PR Dashboard configuration — copy to settings.ini and edit.
+#   cp settings.ini.example settings.ini
+# Every value has a safe built-in default; this file only overrides them.
+
+[server]
+# Port the Flask server listens on.
+port = 5050
+# How long (seconds) fetched PR data is cached before a re-fetch.
+cache_ttl = 30
+
+[frontend]
+# How often (seconds) the dashboard auto-refreshes in the browser.
+refresh_interval = 60
+
+[features]
+# Fix-PR runs `claude --dangerously-skip-permissions` to auto-fix and push PRs
+# with no human review. Off by default — flip to true to expose the UI + endpoint.
+enable_fix_pr = false
+# Hide draft PR sections and the Drafts CI chart.
+hide_drafts = false
+# Hide the "Ready to Promote" section.
+hide_promote_section = false
+# Hide the CI charts row.
+hide_charts = false
+# Show everyone's PRs (with an author badge), not just your own.
+show_others = false
+
+[github]
+# GitHub org/owner the PRs live under.
+org = your-org
+# GitHub username whose open PRs are tracked (when show_others = false).
+user = your-username
+
+[repos]
+# Comma-separated repo names to track and group by.
+names = repo-one, repo-two
+# Comma-separated repos that must have screenshots before a draft can promote.
+# Leave blank to require screenshots from none.
+screenshots_required =
+# Repo whose sibling PRs (sharing a ticket) flag "Backend work needed" on promote.
+# Leave blank to disable.
+backend_repo =

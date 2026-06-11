@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -e
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$DIR"
+
+# Create venv if it doesn't exist
+if [ ! -d ".venv" ]; then
+  python3 -m venv .venv
+fi
+
+source .venv/bin/activate
+
+# Install deps if needed (quiet if already satisfied)
+pip install -q -r requirements.txt 2>/dev/null
+
+# Read the configured port (defaults to 5050) so we open the right URL.
+PORT=$(python3 -c "import configparser; c=configparser.ConfigParser(); c.read('settings.ini'); print(c.get('server','port', fallback='5050'))" 2>/dev/null || echo 5050)
+
+echo "Starting PR Dashboard at http://localhost:$PORT"
+open "http://localhost:$PORT" 2>/dev/null &
+python server.py

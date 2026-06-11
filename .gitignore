@@ -1,0 +1,15 @@
+# Local configuration (contains your org/repos — copy from settings.ini.example)
+settings.ini
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Beads / Dolt task tracking
+.beads/
+.dolt/
+*.db
+
+# macOS
+.DS_Store
